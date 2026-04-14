@@ -33,13 +33,10 @@ export class ChunkTransferManager {
     await api.upsertEntry(entry);
   }
 
-  async download(api: DriveApiGateway, entry: DriveEntry): Promise<DriveEntry> {
+  async download(api: DriveApiGateway, entry: DriveEntry): Promise<DriveEntry | undefined> {
     if (this.shouldUseChunking(entry) && api.downloadEntryInChunks) {
-      const downloaded = await api.downloadEntryInChunks(entry.path, this.options.chunkSize);
-      if (downloaded) {
-        return downloaded;
-      }
+      return api.downloadEntryInChunks(entry.path, this.options.chunkSize);
     }
-    return { ...entry };
+    return undefined;
   }
 }

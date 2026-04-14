@@ -142,7 +142,7 @@ export class SyncEngine {
     }
     if (decision === "useRemote") {
       const downloadedRemote = await this.chunkTransfer.download(this.deps.api, remote);
-      localMap.set(downloadedRemote.path, clone(downloadedRemote));
+      localMap.set(remote.path, clone(downloadedRemote ?? remote));
       return;
     }
     const conflictedPath = `${local.path}.conflict.${Date.now()}`;
