@@ -108,13 +108,33 @@ struct Index {
 
   private runIncrementalSync(): void {
     this.isSyncing = !this.isSyncing;
-    this.tasks = this.tasks.map((task: SyncTaskState) => task.id === 'incremental-sync'
-      ? { ...task, running: this.isSyncing, status: this.isSyncing ? 'running' : 'idle', progress: this.isSyncing ? 40 : 100, latestMessage: this.isSyncing ? '检测到本地变更，开始上传分片...' : '增量同步完成' }
-      : task);
+    this.tasks = this.tasks.map((task: SyncTaskState) => this.updateTaskStatus(task));
     this.files = this.files.map((file: SyncFileState) => ({
       ...file,
       status: this.isSyncing ? '同步中' : '已同步'
     }));
+  }
+
+  private updateTaskStatus(task: SyncTaskState): SyncTaskState {
+    if (task.id !== 'incremental-sync') {
+      return task;
+    }
+    if (this.isSyncing) {
+      return {
+        ...task,
+        running: true,
+        status: 'running',
+        progress: 40,
+        latestMessage: '检测到本地变更，开始上传分片...'
+      };
+    }
+    return {
+      ...task,
+      running: false,
+      status: 'idle',
+      progress: 100,
+      latestMessage: '增量同步完成'
+    };
   }
 
   @Builder

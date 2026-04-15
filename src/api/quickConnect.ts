@@ -168,7 +168,6 @@ export class ReconnectableQuickConnectClient {
       throw new Error("quickconnect not connected");
     }
 
-    let lastError: unknown;
     for (let attempt = 0; attempt <= this.maxRetry; attempt += 1) {
       try {
         if (!this.serverAddress) {
@@ -176,14 +175,13 @@ export class ReconnectableQuickConnectClient {
         }
         return await operation(this.serverAddress);
       } catch (error) {
-        lastError = error;
         if (!isDisconnectError(error) || attempt === this.maxRetry) {
           throw error;
         }
         this.serverAddress = await this.resolver.resolveServerAddress(this.quickConnectId);
       }
     }
-    throw lastError;
+    throw new Error("quickconnect reconnect failed");
   }
 }
 
