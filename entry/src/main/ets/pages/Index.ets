@@ -1,149 +1,137 @@
+import { LoginPage, LoginPageViewModel } from './LoginPage';
+import { FilesPage, FilePageItem } from './FilesPage';
+import { TasksPage, TaskPageItem } from './TasksPage';
+import { SettingsPage, SettingsPageViewModel } from './SettingsPage';
+
+type DesktopPage = 'login' | 'files' | 'tasks' | 'settings';
+
 interface SidebarItem {
-  key: string;
+  key: DesktopPage;
   icon: string;
   title: string;
 }
 
-interface SyncFileItem {
-  id: string;
-  name: string;
+interface SyncFileState {
+  path: string;
   type: string;
-  location: string;
-  size: string;
-  modified: string;
-  owner: string;
+  size: number;
+  modifiedAt: number;
   status: string;
 }
 
-const SIDEBAR_ITEMS: SidebarItem[] = [
-  { key: 'home', icon: '🏠', title: '主页' },
-  { key: 'files', icon: '📁', title: '我的文件' },
-  { key: 'team', icon: '👥', title: '团队空间' },
-  { key: 'recent', icon: '🕘', title: '最近' },
-  { key: 'offline', icon: '📌', title: '离线文件' },
-  { key: 'tasks', icon: '🔄', title: '同步任务' }
-];
+interface SyncTaskState {
+  id: string;
+  running: boolean;
+  progress: number;
+  status: string;
+  latestMessage: string;
+}
 
-const FILE_ITEMS: SyncFileItem[] = [
-  {
-    id: 'f1',
-    name: '产品需求文档_v5.docx',
-    type: 'Word 文档',
-    location: '/Work/Product',
-    size: '2.1 MB',
-    modified: '今天 10:42',
-    owner: 'Bosco',
-    status: '已同步'
-  },
-  {
-    id: 'f2',
-    name: 'DesignSystem.sketch',
-    type: 'Sketch 文件',
-    location: '/Work/Design',
-    size: '84.3 MB',
-    modified: '今天 09:15',
-    owner: 'Alina',
-    status: '正在同步'
-  },
-  {
-    id: 'f3',
-    name: 'Roadmap_2026.xlsx',
-    type: 'Excel 表格',
-    location: '/Team/Strategy',
-    size: '3.4 MB',
-    modified: '昨天 19:21',
-    owner: 'Kevin',
-    status: '冲突'
-  },
-  {
-    id: 'f4',
-    name: 'release_notes.md',
-    type: 'Markdown',
-    location: '/Work/Release',
-    size: '128 KB',
-    modified: '昨天 16:03',
-    owner: 'Bosco',
-    status: '已同步'
-  },
-  {
-    id: 'f5',
-    name: 'presentation_final.pptx',
-    type: 'PowerPoint',
-    location: '/Share/Meetings',
-    size: '26.9 MB',
-    modified: '04-11 21:08',
-    owner: 'Amy',
-    status: '等待网络'
-  },
-  {
-    id: 'f6',
-    name: 'demo_video.mp4',
-    type: '视频',
-    location: '/Media/Demo',
-    size: '1.2 GB',
-    modified: '04-10 08:32',
-    owner: 'Jason',
-    status: '暂停'
-  }
+const SIDEBAR_ITEMS: SidebarItem[] = [
+  { key: 'login', icon: '🔐', title: '登录页' },
+  { key: 'files', icon: '📁', title: '文件页' },
+  { key: 'tasks', icon: '🔄', title: '任务页' },
+  { key: 'settings', icon: '⚙️', title: '设置页' }
 ];
 
 @Entry
 @Component
 struct Index {
-  @State activeSidebar: string = 'files';
-  @State selectedFileId: string = 'f1';
+  @State activePage: DesktopPage = 'login';
   @State searchText: string = '';
-  @State listMode: boolean = true;
   @State isSyncing: boolean = false;
+  @State username: string = 'bosco';
+  @State token: string = '';
+  @State quickConnectId: string = 'my-synology';
+  @State serverAddress: string = '';
+  @State connected: boolean = false;
+  @State retryCount: number = 0;
+  @State connectionMessage: string = '请输入 QuickConnect ID 并连接 NAS';
+  @State autoSync: boolean = true;
+  @State bandwidthLimitKb: number = 1024;
 
-  private get selectedFile(): SyncFileItem {
-    const found = FILE_ITEMS.find((item: SyncFileItem) => item.id === this.selectedFileId);
-    return found ? found : FILE_ITEMS[0];
-  }
+  @State files: SyncFileState[] = [
+    { path: '/Work/Product/PRD_v6.docx', type: 'file', size: 2113536, modifiedAt: Date.now() - 3600000, status: '已同步' },
+    { path: '/Work/Design/DesignSystem.sketch', type: 'file', size: 88473600, modifiedAt: Date.now() - 5400000, status: '已同步' },
+    { path: '/Team/Roadmap_2026.xlsx', type: 'file', size: 3565158, modifiedAt: Date.now() - 9600000, status: '已同步' }
+  ];
 
-  private get visibleFiles(): SyncFileItem[] {
+  @State tasks: SyncTaskState[] = [
+    { id: 'full-sync', running: false, progress: 100, status: 'idle', latestMessage: '全量同步完成' },
+    { id: 'incremental-sync', running: false, progress: 100, status: 'idle', latestMessage: '增量同步空闲' }
+  ];
+
+  private get visibleFiles(): SyncFileState[] {
     const keyword = this.searchText.trim().toLowerCase();
     if (!keyword) {
-      return FILE_ITEMS;
+      return this.files;
     }
-    return FILE_ITEMS.filter((item: SyncFileItem) =>
-      item.name.toLowerCase().includes(keyword) || item.location.toLowerCase().includes(keyword));
+    return this.files.filter((item: SyncFileState) => item.path.toLowerCase().includes(keyword));
   }
 
-  private statusColor(status: string): string {
-    if (status === '已同步') {
-      return '#22C55E';
+  private toFilePageItems(): FilePageItem[] {
+    return this.visibleFiles.map((item: SyncFileState) => ({
+      path: item.path,
+      type: item.type,
+      size: `${(item.size / 1024).toFixed(1)} KB`,
+      modified: new Date(item.modifiedAt).toLocaleString(),
+      status: item.status
+    }));
+  }
+
+  private toTaskPageItems(): TaskPageItem[] {
+    return this.tasks.map((task: SyncTaskState) => ({
+      id: task.id,
+      running: task.running,
+      progress: task.progress,
+      status: task.status,
+      latestMessage: task.latestMessage
+    }));
+  }
+
+  private connectQuickConnect(): void {
+    if (!this.quickConnectId.trim()) {
+      this.connectionMessage = 'QuickConnect ID 不能为空';
+      return;
     }
-    if (status === '正在同步') {
-      return '#3B82F6';
-    }
-    if (status === '冲突') {
-      return '#EF4444';
-    }
-    return '#F59E0B';
+    this.connected = true;
+    this.serverAddress = `https://${this.quickConnectId}.quickconnect.to`;
+    this.connectionMessage = `已连接到 ${this.serverAddress}`;
+  }
+
+  private reconnectQuickConnect(): void {
+    this.retryCount += 1;
+    this.connected = false;
+    this.connectionMessage = `连接断开，正在第 ${this.retryCount} 次重试...`;
+    this.connectQuickConnect();
+  }
+
+  private runIncrementalSync(): void {
+    this.isSyncing = !this.isSyncing;
+    this.tasks = this.tasks.map((task: SyncTaskState) => task.id === 'incremental-sync'
+      ? { ...task, running: this.isSyncing, status: this.isSyncing ? 'running' : 'idle', progress: this.isSyncing ? 40 : 100, latestMessage: this.isSyncing ? '检测到本地变更，开始上传分片...' : '增量同步完成' }
+      : task);
+    this.files = this.files.map((file: SyncFileState) => ({
+      ...file,
+      status: this.isSyncing ? '同步中' : '已同步'
+    }));
   }
 
   @Builder
   private renderTitleBar() {
     Row() {
       Row({ space: 10 }) {
-        Text('☁️')
-          .fontSize(20)
+        Text('☁️').fontSize(20)
         Column({ space: 2 }) {
-          Text('Synology Drive')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#111827')
-          Text('HarmonyOS 桌面端风格')
-            .fontSize(11)
-            .fontColor('#6B7280')
+          Text('Synology Drive').fontSize(16).fontWeight(FontWeight.Medium).fontColor('#111827')
+          Text('HarmonyOS Windows 风格多页面').fontSize(11).fontColor('#6B7280')
         }
       }
 
       Blank()
 
-      TextInput({ text: $$this.searchText, placeholder: '搜索文件、路径或成员' })
-        .width(320)
+      TextInput({ text: $$this.searchText, placeholder: '搜索文件路径' })
+        .width(280)
         .height(36)
         .fontSize(13)
         .backgroundColor('#F9FAFB')
@@ -151,25 +139,39 @@ struct Index {
         .border({ width: 1, color: '#E5E7EB' })
         .padding({ left: 10, right: 10 })
 
+      TextInput({ text: $$this.quickConnectId, placeholder: 'QuickConnect ID' })
+        .width(180)
+        .height(36)
+        .fontSize(13)
+        .backgroundColor('#FFFFFF')
+        .borderRadius(10)
+        .border({ width: 1, color: '#D1D5DB' })
+        .padding({ left: 10, right: 10 })
+
       Row({ space: 8 }) {
-        Button(this.listMode ? '列表视图' : '网格视图')
+        Button('连接')
           .height(34)
           .fontSize(12)
-          .backgroundColor('#EEF2FF')
-          .fontColor('#4338CA')
+          .backgroundColor('#2563EB')
+          .fontColor('#FFFFFF')
           .borderRadius(8)
-          .onClick(() => {
-            this.listMode = !this.listMode;
-          })
+          .onClick(() => this.connectQuickConnect())
+
+        Button('重连')
+          .height(34)
+          .fontSize(12)
+          .backgroundColor('#4B5563')
+          .fontColor('#FFFFFF')
+          .borderRadius(8)
+          .onClick(() => this.reconnectQuickConnect())
+
         Button(this.isSyncing ? '同步中...' : '立即同步')
           .height(34)
           .fontSize(12)
-          .backgroundColor(this.isSyncing ? '#93C5FD' : '#2563EB')
+          .backgroundColor(this.isSyncing ? '#93C5FD' : '#16A34A')
           .fontColor('#FFFFFF')
           .borderRadius(8)
-          .onClick(() => {
-            this.isSyncing = !this.isSyncing;
-          })
+          .onClick(() => this.runIncrementalSync())
       }
     }
     .height(64)
@@ -181,40 +183,35 @@ struct Index {
 
   @Builder
   private renderSidebar() {
-    Column({ space: 6 }) {
+    Column({ space: 8 }) {
       ForEach(SIDEBAR_ITEMS, (item: SidebarItem) => {
         Row({ space: 10 }) {
-          Text(item.icon)
-            .fontSize(16)
+          Text(item.icon).fontSize(16)
           Text(item.title)
             .fontSize(13)
-            .fontColor(this.activeSidebar === item.key ? '#1D4ED8' : '#374151')
-            .fontWeight(this.activeSidebar === item.key ? FontWeight.Medium : FontWeight.Normal)
+            .fontColor(this.activePage === item.key ? '#1D4ED8' : '#374151')
+            .fontWeight(this.activePage === item.key ? FontWeight.Medium : FontWeight.Normal)
           Blank()
         }
         .width('100%')
         .height(40)
         .padding({ left: 12, right: 10 })
-        .backgroundColor(this.activeSidebar === item.key ? '#E0EAFF' : '#F8FAFC')
+        .backgroundColor(this.activePage === item.key ? '#E0EAFF' : '#F8FAFC')
         .borderRadius(8)
         .onClick(() => {
-          this.activeSidebar = item.key;
+          this.activePage = item.key;
         })
       }, (item: SidebarItem) => item.key)
 
       Blank()
 
       Column({ space: 8 }) {
-        Text('存储空间')
+        Text('连接状态').width('100%').fontSize(12).fontColor('#6B7280')
+        Text(this.connected ? 'QuickConnect 在线' : 'QuickConnect 离线')
           .width('100%')
           .fontSize(12)
-          .fontColor('#6B7280')
-        Progress({ value: 67, total: 100, type: ProgressType.Linear })
-          .width('100%')
-          .height(6)
-          .color('#2563EB')
-          .backgroundColor('#E5E7EB')
-        Text('67% 已使用 · 1.34 TB / 2 TB')
+          .fontColor(this.connected ? '#16A34A' : '#EF4444')
+        Text(`重连次数：${this.retryCount}`)
           .width('100%')
           .fontSize(11)
           .fontColor('#6B7280')
@@ -230,168 +227,49 @@ struct Index {
   }
 
   @Builder
-  private renderFilePanel() {
-    Column({ space: 0 }) {
-      Row() {
-        Text('名称')
-          .layoutWeight(3)
-          .fontSize(12)
-          .fontColor('#6B7280')
-        Text('位置')
-          .layoutWeight(2)
-          .fontSize(12)
-          .fontColor('#6B7280')
-        Text('大小')
-          .layoutWeight(1)
-          .fontSize(12)
-          .fontColor('#6B7280')
-        Text('修改时间')
-          .layoutWeight(2)
-          .fontSize(12)
-          .fontColor('#6B7280')
-        Text('状态')
-          .layoutWeight(1)
-          .fontSize(12)
-          .fontColor('#6B7280')
-      }
-      .height(42)
-      .padding({ left: 14, right: 14 })
-      .backgroundColor('#F9FAFB')
-      .border({ width: 1, color: '#E5E7EB' })
-
-      List({ space: 4 }) {
-        ForEach(this.visibleFiles, (item: SyncFileItem) => {
-          ListItem() {
-            Row() {
-              Row({ space: 8 }) {
-                Text('📄').fontSize(14)
-                Text(item.name)
-                  .fontSize(13)
-                  .fontColor('#111827')
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-              }
-              .layoutWeight(3)
-
-              Text(item.location)
-                .layoutWeight(2)
-                .fontSize(12)
-                .fontColor('#4B5563')
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(item.size)
-                .layoutWeight(1)
-                .fontSize(12)
-                .fontColor('#4B5563')
-              Text(item.modified)
-                .layoutWeight(2)
-                .fontSize(12)
-                .fontColor('#4B5563')
-
-              Row({ space: 6 }) {
-                Text('●')
-                  .fontSize(10)
-                  .fontColor(this.statusColor(item.status))
-                Text(item.status)
-                  .fontSize(12)
-                  .fontColor('#374151')
-              }
-              .layoutWeight(1)
-            }
-            .height(46)
-            .padding({ left: 14, right: 14 })
-            .backgroundColor(this.selectedFileId === item.id ? '#E8F0FF' : '#FFFFFF')
-            .borderRadius(8)
-            .onClick(() => {
-              this.selectedFileId = item.id;
-            })
-          }
-        }, (item: SyncFileItem) => item.id)
-      }
-      .layoutWeight(1)
-      .padding(6)
-      .backgroundColor('#FFFFFF')
+  private renderPageContent() {
+    if (this.activePage === 'login') {
+      const vm: LoginPageViewModel = {
+        username: this.username,
+        quickConnectId: this.quickConnectId,
+        connected: this.connected,
+        serverAddress: this.serverAddress,
+        message: this.connectionMessage
+      };
+      LoginPage({ viewModel: vm });
+      return;
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#FFFFFF')
-    .borderRadius(12)
-    .shadow({ radius: 12, color: '#0F172A12', offsetX: 0, offsetY: 4 })
-  }
 
-  @Builder
-  private renderDetailPanel() {
-    Column({ space: 10 }) {
-      Text('详细信息')
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#111827')
-      Divider().color('#E5E7EB')
-
-      Text(this.selectedFile.name)
-        .fontSize(13)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#111827')
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-
-      this.renderDetailRow('类型', this.selectedFile.type)
-      this.renderDetailRow('归属', this.selectedFile.owner)
-      this.renderDetailRow('位置', this.selectedFile.location)
-      this.renderDetailRow('大小', this.selectedFile.size)
-      this.renderDetailRow('修改时间', this.selectedFile.modified)
-      this.renderDetailRow('同步状态', this.selectedFile.status)
-
-      Blank()
-
-      Button('查看历史版本')
-        .width('100%')
-        .height(36)
-        .fontSize(12)
-        .backgroundColor('#EEF2FF')
-        .fontColor('#4338CA')
-        .borderRadius(8)
-
-      Button('分享链接')
-        .width('100%')
-        .height(36)
-        .fontSize(12)
-        .backgroundColor('#F3F4F6')
-        .fontColor('#374151')
-        .borderRadius(8)
+    if (this.activePage === 'files') {
+      FilesPage({ files: this.toFilePageItems() });
+      return;
     }
-    .width('100%')
-    .height('100%')
-    .padding(12)
-    .backgroundColor('#FFFFFF')
-    .borderRadius(12)
-    .shadow({ radius: 12, color: '#0F172A12', offsetX: 0, offsetY: 4 })
-  }
 
-  @Builder
-  private renderDetailRow(label: string, value: string) {
-    Row() {
-      Text(label)
-        .layoutWeight(1)
-        .fontSize(12)
-        .fontColor('#6B7280')
-      Text(value)
-        .layoutWeight(2)
-        .fontSize(12)
-        .fontColor('#111827')
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    if (this.activePage === 'tasks') {
+      TasksPage({ tasks: this.toTaskPageItems() });
+      return;
     }
+
+    const settings: SettingsPageViewModel = {
+      autoSync: this.autoSync,
+      bandwidthLimitKb: this.bandwidthLimitKb,
+      quickConnectId: this.quickConnectId,
+      connected: this.connected,
+      retryCount: this.retryCount
+    };
+    SettingsPage({ viewModel: settings });
   }
 
   @Builder
   private renderBottomBar() {
     Row() {
-      Text(this.isSyncing ? '同步引擎状态：正在执行增量同步...' : '同步引擎状态：空闲')
+      Text(this.connectionMessage)
         .fontSize(12)
         .fontColor('#374151')
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
       Blank()
-      Text(`当前目录共 ${this.visibleFiles.length} 个项目`)
+      Text(`文件 ${this.visibleFiles.length} 项 · 任务 ${this.tasks.length} 项`)
         .fontSize(12)
         .fontColor('#6B7280')
     }
@@ -413,15 +291,9 @@ struct Index {
         .height('100%')
 
         Column() {
-          this.renderFilePanel()
+          this.renderPageContent()
         }
-        .width('56%')
-        .height('100%')
-
-        Column() {
-          this.renderDetailPanel()
-        }
-        .width('24%')
+        .width('80%')
         .height('100%')
       }
       .layoutWeight(1)

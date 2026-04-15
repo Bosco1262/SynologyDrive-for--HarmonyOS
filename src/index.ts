@@ -1,4 +1,5 @@
 export * from "./api/driveApiGateway";
+export * from "./api/quickConnect";
 export * from "./core/eventBus";
 export * from "./notification/notificationCenter";
 export * from "./observability/taskLogger";
@@ -22,3 +23,4 @@ export * from "./sync/speedLimiter";
 export * from "./sync/syncEngine";
 export * from "./types";
 export * from "./ui/models";
+export * from "./ui/desktopSyncViewModel";
